@@ -28,7 +28,7 @@ pub fn main() !void {
 }
 
 const formatter = std.fs.path.fmtJoin(&[_][]const u8{ "test-suite", "datasets" });
-fn get_datasets(alloc: std.mem.Allocator) std.StringArrayHashMap(std.json.Parsed(std.json.Value)) {
+fn get_datasets(alloc: std.mem.Allocator) std.StringArrayHashMap(std.json.Value) {
     var dataset_path = std.ArrayList(u8).init(alloc);
     defer dataset_path.deinit();
     dataset_path.writer().print("{s}", .{formatter}) catch |err| {
@@ -39,7 +39,7 @@ fn get_datasets(alloc: std.mem.Allocator) std.StringArrayHashMap(std.json.Parsed
     };
     defer test_suite_dir.close();
     var iter = test_suite_dir.iterate();
-    var string_hash_map = std.StringArrayHashMap(std.json.Parsed(std.json.Value)).init(alloc);
+    var string_hash_map = std.StringArrayHashMap(std.json.Value).init(alloc);
     while (iter.next()) |maybe_entry| {
         const entry = maybe_entry orelse break;
         if (entry.kind == .file) {
@@ -51,10 +51,14 @@ fn get_datasets(alloc: std.mem.Allocator) std.StringArrayHashMap(std.json.Parsed
                 fatal("unable to read '{s}': {s}", .{ entry.name, @errorName(err) });
             };
             defer alloc.free(file_content);
-            const parsed = std.json.parseFromSlice(std.json.Value, alloc, file_content, .{}) catch |err| {
+            const parsed = std.json.parseFromSliceLeaky(std.json.Value, alloc, file_content, .{}) catch |err| {
                 fatal("unable to parse '{s}': {s}", .{ entry.name, @errorName(err) });
             };
-            string_hash_map.put(entry.name, parsed) catch |err| {
+            const dataset_name = alloc.alloc(u8, entry.name.len-5) catch |err | {
+                fatal("error allocating: {any}", .{err});
+            };
+            @memcpy(dataset_name, entry.name[0..entry.name.len-5]);
+            string_hash_map.put(dataset_name, parsed) catch |err| {
                 fatal("unable to alloc: {any}", .{err});
             };
         }
@@ -70,11 +74,10 @@ fn fatal(comptime format: []const u8, args: anytype) noreturn {
 }
 
 test "get_datasets should return datasets" {
-    var datasets = get_datasets(std.testing.allocator);
-    defer datasets.deinit();
-    var iter = datasets.iterator();
-    defer while (iter.next()) |entry| {
-        entry.value_ptr.deinit();
-    };
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    var datasets = get_datasets(arena.allocator());
+    defer arena.deinit();
     try std.testing.expectEqual(28, datasets.count());
+    try std.testing.expect(datasets.contains("library"));
+    try std.testing.expect(datasets.contains("dataset11"));
 }
