@@ -28,42 +28,25 @@ pub fn main() !void {
 }
 
 const formatter = std.fs.path.fmtJoin(&[_][]const u8{ "test-suite", "datasets" });
-fn get_datasets(alloc: std.mem.Allocator) std.StringArrayHashMap(std.json.Value) {
+fn get_datasets(alloc: std.mem.Allocator) !std.StringArrayHashMap(std.json.Value) {
     var dataset_path = std.ArrayList(u8).init(alloc);
     defer dataset_path.deinit();
-    dataset_path.writer().print("{s}", .{formatter}) catch |err| {
-        fatal("unable to create path: {s}", .{@errorName(err)});
-    };
-    var test_suite_dir = std.fs.cwd().openDir(dataset_path.items, .{}) catch |err| {
-        fatal("unable to open '{s}': {s}", .{ dataset_path.items, @errorName(err) });
-    };
+    try dataset_path.writer().print("{s}", .{formatter});
+    var test_suite_dir = try std.fs.cwd().openDir(dataset_path.items, .{});
     defer test_suite_dir.close();
     var iter = test_suite_dir.iterate();
     var string_hash_map = std.StringArrayHashMap(std.json.Value).init(alloc);
-    while (iter.next()) |maybe_entry| {
-        const entry = maybe_entry orelse break;
+    while (try iter.next()) |entry| {
         if (entry.kind == .file) {
-            var file = test_suite_dir.openFile(entry.name, .{}) catch |err| {
-                fatal("unable to open '{s}': {s}", .{ dataset_path.items, @errorName(err) });
-            };
+            var file = try test_suite_dir.openFile(entry.name, .{});
             defer file.close();
-            const file_content = file.readToEndAlloc(alloc, 1024 * 1024) catch |err| {
-                fatal("unable to read '{s}': {s}", .{ entry.name, @errorName(err) });
-            };
+            const file_content = try file.readToEndAlloc(alloc, 1024 * 1024);
             defer alloc.free(file_content);
-            const parsed = std.json.parseFromSliceLeaky(std.json.Value, alloc, file_content, .{}) catch |err| {
-                fatal("unable to parse '{s}': {s}", .{ entry.name, @errorName(err) });
-            };
-            const dataset_name = alloc.alloc(u8, entry.name.len-5) catch |err | {
-                fatal("error allocating: {any}", .{err});
-            };
-            @memcpy(dataset_name, entry.name[0..entry.name.len-5]);
-            string_hash_map.put(dataset_name, parsed) catch |err| {
-                fatal("unable to alloc: {any}", .{err});
-            };
+            const parsed = try std.json.parseFromSliceLeaky(std.json.Value, alloc, file_content, .{});
+            const dataset_name = try alloc.alloc(u8, entry.name.len - 5);
+            @memcpy(dataset_name, entry.name[0 .. entry.name.len - 5]);
+            try string_hash_map.put(dataset_name, parsed);
         }
-    } else |err| {
-        fatal("error iterating: {s}", .{@errorName(err)});
     }
     return string_hash_map;
 }
@@ -75,7 +58,7 @@ fn fatal(comptime format: []const u8, args: anytype) noreturn {
 
 test "get_datasets should return datasets" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    var datasets = get_datasets(arena.allocator());
+    var datasets = try get_datasets(arena.allocator());
     defer arena.deinit();
     try std.testing.expectEqual(28, datasets.count());
     try std.testing.expect(datasets.contains("library"));
