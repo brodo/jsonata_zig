@@ -27,7 +27,29 @@ pub fn main() !void {
     return std.process.cleanExit();
 }
 
+const formatter = std.fs.path.fmtJoin(&[_][]const u8{ "test-suite", "datasets" });
+fn get_datasets(alloc: std.mem.Allocator) void {
+    var dataset_path = std.ArrayList(u8).init(alloc);
+    defer dataset_path.deinit();
+    dataset_path.writer().print("{s}", .{formatter}) catch |err| {
+        fatal("unable to create path: {s}", .{@errorName(err)});
+    };
+
+    var test_suite_dir = std.fs.cwd().openDir(dataset_path.items, .{}) catch |err| {
+        fatal("unable to open '{s}': {s}", .{ dataset_path.items, @errorName(err) });
+    };
+    defer test_suite_dir.close();
+    var iter = test_suite_dir.iterate();
+    while (iter.next() catch |err| fatal("error iterating: {s}", .{@errorName(err)})) |entry| {
+        std.debug.print("File {s} ({})\n", .{ entry.name, entry.kind });
+    }
+}
+
 fn fatal(comptime format: []const u8, args: anytype) noreturn {
     std.debug.print(format, args);
     std.process.exit(1);
+}
+
+test "get_datasets should return datasets" {
+    get_datasets(std.testing.allocator);
 }
