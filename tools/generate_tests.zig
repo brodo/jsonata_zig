@@ -40,8 +40,22 @@ fn get_datasets(alloc: std.mem.Allocator) void {
     };
     defer test_suite_dir.close();
     var iter = test_suite_dir.iterate();
-    while (iter.next() catch |err| fatal("error iterating: {s}", .{@errorName(err)})) |entry| {
+    while (iter.next()) |maybe_entry| {
+        const entry = maybe_entry orelse break;
         std.debug.print("File {s} ({})\n", .{ entry.name, entry.kind });
+        if (entry.kind == .file) {
+            var file = test_suite_dir.openFile(entry.name, .{}) catch |err| {
+                fatal("unable to open '{s}': {s}", .{ dataset_path.items, @errorName(err) });
+            };
+            defer file.close();
+            const file_content = file.readToEndAlloc(alloc, 1024 * 1024) catch |err| {
+                fatal("unable to read '{s}': {s}", .{ entry.name, @errorName(err) });
+            };
+            defer alloc.free(file_content);
+            std.debug.print("File content: \n{s}", .{file_content});
+        }
+    } else |err| {
+        fatal("error iterating: {s}", .{@errorName(err)});
     }
 }
 
