@@ -15,15 +15,23 @@ pub fn main() !void {
         fatal("unable to open '{s}': {s}", .{ output_file_path, @errorName(err) });
     };
     defer output_file.close();
+    // var datasets = try get_datasets(arena_tests);
+    var groups = try get_groups(arena);
+    var g_iter = groups.iterator();
+    var out_txt = std.ArrayList(u8).init(arena);
+    defer out_txt.deinit();
+    try out_txt.writer().print("const std = @import(\"std\");\nconst testing = std.testing;", .{});
+    while (g_iter.next()) |group| {
+        for (group.value_ptr.items) |test_case| {
+            try out_txt.writer().print(
+                \\test "{s} - {s}" {{
+                \\  try testing.expect(3+8 == 10);
+                \\}}
+            , .{ group.key_ptr, test_case.name });
+        }
+    }
 
-    try output_file.writeAll(
-        \\const std = @import("std");
-        \\const testing = std.testing;
-        \\
-        \\test "failing to add" {
-        \\  try testing.expect(3 + 8 == 11);
-        \\}
-    );
+    try output_file.writeAll(out_txt.items);
     return std.process.cleanExit();
 }
 
@@ -55,16 +63,14 @@ fn get_groups(alloc: std.mem.Allocator) !std.StringArrayHashMap(std.ArrayList(Te
     var result_hm = std.StringArrayHashMap(std.ArrayList(Test)).init(alloc);
 
     while (try g_iter.next()) |dir_info| {
-        std.debug.print("dir: {s}\n", .{dir_info.name});
         if (dir_info.kind != .directory) continue;
         var test_dir = try group_dir.openDir(dir_info.name, .{});
         defer test_dir.close();
         var t_iter = test_dir.iterate();
         var test_list = std.ArrayList(Test).init(alloc);
         while (try t_iter.next()) |file_info| {
-            std.debug.print("file: {s}\n", .{file_info.name});
-
-            if (file_info.kind != .file or !std.mem.eql(u8, file_info.name[0 .. file_info.name.len - 4], "json")) continue;
+            // std.debug.print("group: '{s}', name: '{s}', ending: {s}\n", .{ dir_info.name, file_info.name, file_info.name[file_info.name.len - 5 ..] });
+            if (file_info.kind != .file or !std.mem.eql(u8, file_info.name[file_info.name.len - 5 ..], ".json")) continue;
             // todo: also add .jsonata files!
             var file = try test_dir.openFile(file_info.name, .{});
             defer file.close();
@@ -90,6 +96,10 @@ test "get_groups" {
     defer area.deinit();
     var groups = try get_groups(area.allocator());
     try std.testing.expectEqual(100, groups.count());
+    var iterator = groups.iterator();
+    while (iterator.next()) |entry| {
+        try std.testing.expect(entry.value_ptr.items.len > 0);
+    }
 }
 
 test "get_datasets" {
