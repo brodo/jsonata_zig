@@ -25,7 +25,7 @@ pub fn main() !void {
         for (group.value_ptr.items) |test_case| {
             try out_txt.writer().print(
                 \\test "{s} - {s}" {{
-                \\  try testing.expect(3+8 == 10);
+                \\  try testing.expect(false);
                 \\}}
             , .{ group.key_ptr, test_case.name });
         }
