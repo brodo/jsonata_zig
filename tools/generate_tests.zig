@@ -27,7 +27,6 @@ pub fn main() !void {
     return std.process.cleanExit();
 }
 
-
 fn get_datasets(alloc: std.mem.Allocator) !std.StringArrayHashMap(std.json.Value) {
     var test_suite_dir = try std.fs.cwd().openDir("test-suite/datasets", .{});
     defer test_suite_dir.close();
@@ -47,16 +46,38 @@ fn get_datasets(alloc: std.mem.Allocator) !std.StringArrayHashMap(std.json.Value
     return string_hash_map;
 }
 
+const Test = struct { name: []u8, definition: std.json.Value };
 
-fn get_groups(_: std.mem.Allocator) !void {
+fn get_groups(alloc: std.mem.Allocator) !std.StringArrayHashMap(std.ArrayList(Test)) {
     var group_dir = try std.fs.cwd().openDir("test-suite/groups", .{});
     defer group_dir.close();
-    var iter = group_dir.iterate();
-    while (try iter.next()) |entry| {
-        std.debug.print("name: {s}\n", .{entry.name});
-        if (entry.kind != .directory) continue;
+    var g_iter = group_dir.iterate();
+    var result_hm = std.StringArrayHashMap(std.ArrayList(Test)).init(alloc);
 
+    while (try g_iter.next()) |dir_info| {
+        std.debug.print("dir: {s}\n", .{dir_info.name});
+        if (dir_info.kind != .directory) continue;
+        var test_dir = try group_dir.openDir(dir_info.name, .{});
+        defer test_dir.close();
+        var t_iter = test_dir.iterate();
+        var test_list = std.ArrayList(Test).init(alloc);
+        while (try t_iter.next()) |file_info| {
+            std.debug.print("file: {s}\n", .{file_info.name});
+
+            if (file_info.kind != .file or !std.mem.eql(u8, file_info.name[0 .. file_info.name.len - 4], "json")) continue;
+            // todo: also add .jsonata files!
+            var file = try test_dir.openFile(file_info.name, .{});
+            defer file.close();
+            const file_content = try file.readToEndAlloc(alloc, 1024 * 1024);
+            defer alloc.free(file_content);
+            const parsed = try std.json.parseFromSliceLeaky(std.json.Value, alloc, file_content, .{});
+            const case_name = try alloc.alloc(u8, file_info.name.len - 5);
+            @memcpy(case_name, file_info.name[0 .. file_info.name.len - 5]);
+            try test_list.append(.{ .name = case_name, .definition = parsed });
+        }
+        try result_hm.put(dir_info.name, test_list);
     }
+    return result_hm;
 }
 
 fn fatal(comptime format: []const u8, args: anytype) noreturn {
@@ -67,7 +88,8 @@ fn fatal(comptime format: []const u8, args: anytype) noreturn {
 test "get_groups" {
     var area = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer area.deinit();
-    try get_groups(area.allocator());
+    var groups = try get_groups(area.allocator());
+    try std.testing.expectEqual(100, groups.count());
 }
 
 test "get_datasets" {
