@@ -28,12 +28,8 @@ pub fn main() !void {
 }
 
 
-const ds_formatter = std.fs.path.fmtJoin(&[_][]const u8{ "test-suite", "datasets" });
 fn get_datasets(alloc: std.mem.Allocator) !std.StringArrayHashMap(std.json.Value) {
-    var dataset_path = std.ArrayList(u8).init(alloc);
-    defer dataset_path.deinit();
-    try dataset_path.writer().print("{s}", .{ds_formatter});
-    var test_suite_dir = try std.fs.cwd().openDir(dataset_path.items, .{});
+    var test_suite_dir = try std.fs.cwd().openDir("test-suite/datasets", .{});
     defer test_suite_dir.close();
     var iter = test_suite_dir.iterate();
     var string_hash_map = std.StringArrayHashMap(std.json.Value).init(alloc);
@@ -52,12 +48,8 @@ fn get_datasets(alloc: std.mem.Allocator) !std.StringArrayHashMap(std.json.Value
 }
 
 
-const group_formatter = std.fs.path.fmtJoin(&[_][]const u8{ "test-suite", "groups" });
-fn get_groups(alloc: std.mem.Allocator) !void {
-    var group_path = std.ArrayList(u8).init(alloc);
-    defer group_path.deinit();
-    try group_path.writer().print("{s}", .{group_formatter});
-    var group_dir = try std.fs.cwd().openDir(group_path.items, .{});
+fn get_groups(_: std.mem.Allocator) !void {
+    var group_dir = try std.fs.cwd().openDir("test-suite/groups", .{});
     defer group_dir.close();
     var iter = group_dir.iterate();
     while (try iter.next()) |entry| {
