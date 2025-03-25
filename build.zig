@@ -28,7 +28,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-
     // Now, we will create a static library based on the module we created above.
     // This creates a `std.Build.Step.Compile`, which is the build step responsible
     // for actually invoking the compiler.
@@ -55,20 +54,22 @@ pub fn build(b: *std.Build) void {
         .target = b.graph.host,
     });
 
-
     const gen_tests_step = b.addRunArtifact(gen_tests);
     const output = gen_tests_step.addOutputFileArg("test_suite.zig");
-    lib_mod.addAnonymousImport("test_suite", .{
-        .root_source_file = output
+    const gen_test_mod = b.createModule(.{ .root_source_file = output, .target = target, .optimize = optimize });
+    gen_test_mod.addAnonymousImport("root.zig", .{ .root_source_file = b.path("src/root.zig") });
+    const gen_test_lib = b.addTest(.{
+        .root_module = gen_test_mod,
     });
 
-
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
-
+    const run_lib_generated_tests = b.addRunArtifact(gen_test_lib);
 
     // Similar to creating the run step earlier, this exposes a `test` step to
     // the `zig build --help` menu, providing a way for the user to request
     // running the unit tests.
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);
+    const gen_test_step = b.step("test-gen", "Run generated unit tests");
+    gen_test_step.dependOn(&run_lib_generated_tests.step);
 }

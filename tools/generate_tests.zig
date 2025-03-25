@@ -17,6 +17,7 @@ pub fn main() !void {
     defer out_txt.deinit();
     try out_txt.writer().print(
         \\const std = @import("std");
+        \\const jsonata = @import("root.zig");
         \\const testing = std.testing;
         \\
     , .{});
@@ -25,7 +26,7 @@ pub fn main() !void {
             try out_txt.writer().print(
                 \\
                 \\test "{s} - {s}" {{
-                \\  try testing.expect(false);
+                \\  try testing.expect(jsonata.test_me());
                 \\}}
             , .{ group.key_ptr.*, test_case.name });
         }

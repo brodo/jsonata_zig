@@ -1,3 +1,3 @@
-test {
-    _ = @import("test_suite");
+pub fn test_me() bool {
+    return false;
 }
