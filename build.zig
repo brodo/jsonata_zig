@@ -43,8 +43,6 @@ pub fn build(b: *std.Build) void {
     // running `zig build`).
     b.installArtifact(lib);
 
-
-
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
     const lib_unit_tests = b.addTest(.{
@@ -57,14 +55,15 @@ pub fn build(b: *std.Build) void {
         .target = b.graph.host,
     });
 
+
     const gen_tests_step = b.addRunArtifact(gen_tests);
     const output = gen_tests_step.addOutputFileArg("test_suite.zig");
+    lib_mod.addAnonymousImport("test_suite", .{
+        .root_source_file = output
+    });
 
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
-    lib.root_module.addAnonymousImport("test_suite", .{
-        .root_source_file = output
-    });
 
 
     // Similar to creating the run step earlier, this exposes a `test` step to
