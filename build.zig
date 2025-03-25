@@ -56,7 +56,11 @@ pub fn build(b: *std.Build) void {
 
     const gen_tests_step = b.addRunArtifact(gen_tests);
     const output = gen_tests_step.addOutputFileArg("test_suite.zig");
-    const gen_test_mod = b.createModule(.{ .root_source_file = output, .target = target, .optimize = optimize });
+    const gen_test_mod = b.createModule(.{
+        .root_source_file = output, //
+        .target = target,
+        .optimize = optimize,
+    });
     gen_test_mod.addAnonymousImport("root.zig", .{ .root_source_file = b.path("src/root.zig") });
     const gen_test_lib = b.addTest(.{
         .root_module = gen_test_mod,

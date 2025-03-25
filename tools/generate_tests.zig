@@ -11,8 +11,6 @@ pub fn main() !void {
     const output_file_path = args[1];
     var output_file = try std.fs.cwd().createFile(output_file_path, .{});
     defer output_file.close();
-    var groups = try get_groups(arena);
-    var g_iter = groups.iterator();
     var out_txt = std.ArrayList(u8).init(arena);
     defer out_txt.deinit();
     try out_txt.writer().print(
@@ -20,17 +18,51 @@ pub fn main() !void {
         \\const jsonata = @import("root.zig");
         \\const testing = std.testing;
         \\
+        \\const datasets = .{{
     , .{});
-    while (g_iter.next()) |group| {
-        for (group.value_ptr.items) |test_case| {
+    {
+        const datasets = try get_datasets(arena);
+        var dataset_iterator = datasets.iterator();
+        while (dataset_iterator.next()) |entry| {
+            const name = entry.key_ptr.*;
+            const path = entry.value_ptr.*;
             try out_txt.writer().print(
+                \\  .{{ "{s}", @embedFile("{s}") }},
                 \\
-                \\test "{s} - {s}" {{
-                \\  try testing.expect(jsonata.test_me());
-                \\}}
+            , .{ name, path });
+        }
+        try out_txt.writer().print(
+            \\}};
+            \\var dataset_map = std.StaticStringMap([]const u8).initComptime(datasets);
+        , .{});
+    }
+    {
+        var groups = try get_groups(arena);
+        var g_iter = groups.iterator();
+        // while (g_iter.next()) |group| {
+        //     for (group.value_ptr.items) |test_case| {
+        //         try out_txt.writer().print(
+        //             \\
+        //             \\test "{s} - {s}" {{
+        //             \\  try testing.expect(jsonata.test_me());
+        //             \\}}
+        //     , .{ group.key_ptr.*, test_case.name });
+        //     }
+        // }
+
+        while (g_iter.next()) |group| {
+            for (group.value_ptr.items) |test_case| {
+                try out_txt.writer().print(
+                    \\
+                    \\test "{s} - {s}" {{
+                    \\  try testing.expect(jsonata.test_me());
+                    \\}}
             , .{ group.key_ptr.*, test_case.name });
+            }
         }
     }
+
+
 
     try output_file.writeAll(out_txt.items);
     return std.process.cleanExit();
@@ -67,24 +99,21 @@ fn get_groups(alloc: std.mem.Allocator) !std.StringArrayHashMap(std.ArrayList(Te
     return result_hm;
 }
 
-fn get_datasets(alloc: std.mem.Allocator) !std.StringArrayHashMap(std.json.Value) {
-    var test_suite_dir = try std.fs.cwd().openDir("test-suite/datasets", .{});
+fn get_datasets(alloc: std.mem.Allocator) !std.StringArrayHashMap([]const u8) {
+    const dataset_root = "test-suite/datasets";
+    var test_suite_dir = try std.fs.cwd().openDir(dataset_root, .{});
     defer test_suite_dir.close();
-    var string_hash_map = std.StringArrayHashMap(std.json.Value).init(alloc);
+    var string_hash_map = std.StringArrayHashMap([]const u8).init(alloc);
     var iter = test_suite_dir.iterate();
     while (try iter.next()) |entry| {
         if (entry.kind != .file) continue;
         var file = try test_suite_dir.openFile(entry.name, .{});
         defer file.close();
-        const file_content = try file.readToEndAlloc(alloc, 1024 * 1024);
-        const parsed = try std.json.parseFromSliceLeaky(std.json.Value, alloc, file_content, .{});
         const dataset_name = try alloc.dupe(u8, std.fs.path.stem(entry.name));
-        try string_hash_map.put(dataset_name, parsed);
+        try string_hash_map.put(dataset_name, try std.fs.path.join(alloc, &.{ dataset_root, entry.name }));
     }
     return string_hash_map;
 }
-
-
 
 test "get_groups" {
     var area = std.heap.ArenaAllocator.init(std.testing.allocator);
