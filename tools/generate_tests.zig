@@ -15,41 +15,43 @@ pub fn main() !void {
     defer out_txt.deinit();
     try out_txt.writer().print(
         \\const std = @import("std");
-        \\const jsonata = @import("root.zig");
         \\const testing = std.testing;
+        \\const json = std.json;
+        \\const jsonata = @import("root.zig");
         \\
-        \\const datasets = .{{
     , .{});
+
     {
         const datasets = try get_datasets(arena);
+
+        try out_txt.writer().print(
+            \\const datasets = blk: {{
+            \\  var arena_alloc = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+            \\  defer arena_alloc.deinit();
+            \\  const arr = [].{{
+            \\
+        , .{});
+
         var dataset_iterator = datasets.iterator();
         while (dataset_iterator.next()) |entry| {
             const name = entry.key_ptr.*;
             const path = entry.value_ptr.*;
             try out_txt.writer().print(
-                \\  .{{ "{s}", @embedFile("{s}") }},
+                \\      .{{ "{s}", json.parseFromSlice(std.json.Value, arena_alloc.allocator(), @embedFile("{s}"), .{{}}).? }},
                 \\
             , .{ name, path });
         }
         try out_txt.writer().print(
+            \\  }};
+            \\  break :blk arr;
             \\}};
-            \\var dataset_map = std.StaticStringMap([]const u8).initComptime(datasets);
+            \\
+            \\const dataset_map = std.StaticStringMap(json.Value).initComptime(datasets);
         , .{});
     }
     {
         var groups = try get_groups(arena);
         var g_iter = groups.iterator();
-        // while (g_iter.next()) |group| {
-        //     for (group.value_ptr.items) |test_case| {
-        //         try out_txt.writer().print(
-        //             \\
-        //             \\test "{s} - {s}" {{
-        //             \\  try testing.expect(jsonata.test_me());
-        //             \\}}
-        //     , .{ group.key_ptr.*, test_case.name });
-        //     }
-        // }
-
         while (g_iter.next()) |group| {
             for (group.value_ptr.items) |test_case| {
                 try out_txt.writer().print(
@@ -57,12 +59,10 @@ pub fn main() !void {
                     \\test "{s} - {s}" {{
                     \\  try testing.expect(jsonata.test_me());
                     \\}}
-            , .{ group.key_ptr.*, test_case.name });
+                , .{ group.key_ptr.*, test_case.name });
             }
         }
     }
-
-
 
     try output_file.writeAll(out_txt.items);
     return std.process.cleanExit();
