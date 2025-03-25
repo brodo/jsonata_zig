@@ -4,16 +4,12 @@ pub fn main() !void {
     var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-
     const args = try std.process.argsAlloc(arena);
-
-    if (args.len != 2) fatal("wrong number of arguments", .{});
-
+    if (args.len != 2) {
+        std.debug.panic("Please provide the output file name as an argument.", .{});
+    }
     const output_file_path = args[1];
-
-    var output_file = std.fs.cwd().createFile(output_file_path, .{}) catch |err| {
-        fatal("unable to open '{s}': {s}", .{ output_file_path, @errorName(err) });
-    };
+    var output_file = try std.fs.cwd().createFile(output_file_path, .{});
     defer output_file.close();
     var groups = try get_groups(arena);
     var g_iter = groups.iterator();
@@ -37,23 +33,6 @@ pub fn main() !void {
 
     try output_file.writeAll(out_txt.items);
     return std.process.cleanExit();
-}
-
-fn get_datasets(alloc: std.mem.Allocator) !std.StringArrayHashMap(std.json.Value) {
-    var test_suite_dir = try std.fs.cwd().openDir("test-suite/datasets", .{});
-    defer test_suite_dir.close();
-    var string_hash_map = std.StringArrayHashMap(std.json.Value).init(alloc);
-    var iter = test_suite_dir.iterate();
-    while (try iter.next()) |entry| {
-        if (entry.kind != .file) continue;
-        var file = try test_suite_dir.openFile(entry.name, .{});
-        defer file.close();
-        const file_content = try file.readToEndAlloc(alloc, 1024 * 1024);
-        const parsed = try std.json.parseFromSliceLeaky(std.json.Value, alloc, file_content, .{});
-        const dataset_name = try alloc.dupe(u8, std.fs.path.stem(entry.name));
-        try string_hash_map.put(dataset_name, parsed);
-    }
-    return string_hash_map;
 }
 
 const Test = struct { name: []const u8, definition: std.json.Value };
@@ -87,10 +66,24 @@ fn get_groups(alloc: std.mem.Allocator) !std.StringArrayHashMap(std.ArrayList(Te
     return result_hm;
 }
 
-fn fatal(comptime format: []const u8, args: anytype) noreturn {
-    std.debug.print(format, args);
-    std.process.exit(1);
+fn get_datasets(alloc: std.mem.Allocator) !std.StringArrayHashMap(std.json.Value) {
+    var test_suite_dir = try std.fs.cwd().openDir("test-suite/datasets", .{});
+    defer test_suite_dir.close();
+    var string_hash_map = std.StringArrayHashMap(std.json.Value).init(alloc);
+    var iter = test_suite_dir.iterate();
+    while (try iter.next()) |entry| {
+        if (entry.kind != .file) continue;
+        var file = try test_suite_dir.openFile(entry.name, .{});
+        defer file.close();
+        const file_content = try file.readToEndAlloc(alloc, 1024 * 1024);
+        const parsed = try std.json.parseFromSliceLeaky(std.json.Value, alloc, file_content, .{});
+        const dataset_name = try alloc.dupe(u8, std.fs.path.stem(entry.name));
+        try string_hash_map.put(dataset_name, parsed);
+    }
+    return string_hash_map;
 }
+
+
 
 test "get_groups" {
     var area = std.heap.ArenaAllocator.init(std.testing.allocator);
