@@ -56,24 +56,51 @@ pub fn build(b: *std.Build) void {
 
     const gen_tests_step = b.addRunArtifact(gen_tests);
     const output = gen_tests_step.addOutputFileArg("test_suite.zig");
-    const gen_test_mod = b.createModule(.{
-        .root_source_file = output, //
-        .target = target,
-        .optimize = optimize,
-    });
-    gen_test_mod.addAnonymousImport("root.zig", .{ .root_source_file = b.path("src/root.zig") });
-    const gen_test_lib = b.addTest(.{
-        .root_module = gen_test_mod,
-    });
+    lib_mod.addAnonymousImport("test_suite", .{ .root_source_file = output });
+    add_tests_files(b, lib_mod) catch |err| {
+        std.debug.panic("could not add test suite files to lib module: {any}", .{err});
+    };
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
-    const run_lib_generated_tests = b.addRunArtifact(gen_test_lib);
 
     // Similar to creating the run step earlier, this exposes a `test` step to
     // the `zig build --help` menu, providing a way for the user to request
     // running the unit tests.
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);
-    const gen_test_step = b.step("test-gen", "Run generated unit tests");
-    gen_test_step.dependOn(&run_lib_generated_tests.step);
+}
+
+fn add_tests_files(b: *std.Build, module: *std.Build.Module) !void {
+    // get datasets
+    const dataset_root = "test-suite/datasets";
+    var test_suite_dir = try std.fs.cwd().openDir(dataset_root, .{});
+    defer test_suite_dir.close();
+    var iter = test_suite_dir.iterate();
+    while (try iter.next()) |entry| {
+        if (entry.kind != .file) continue;
+        var buf = [_]u8{0} ** 100;
+        const path = try std.fmt.bufPrint(&buf, "{s}/{s}", .{ dataset_root, entry.name });
+        const name = std.fs.path.stem(entry.name);
+        module.addAnonymousImport(name, .{ .root_source_file = b.path(path) });
+    }
+
+    // get groups
+    const group_root = "test-suite/groups";
+    var group_dir = try std.fs.cwd().openDir(group_root, .{});
+    defer group_dir.close();
+    var g_iter = group_dir.iterate();
+    while (try g_iter.next()) |dir_info| {
+        if (dir_info.kind != .directory) continue;
+        var test_dir = try group_dir.openDir(dir_info.name, .{});
+        defer test_dir.close();
+        var t_iter = test_dir.iterate();
+        while (try t_iter.next()) |file_info| {
+            if (file_info.kind != .file) continue;
+            var name_buf = [_]u8{0} ** 100;
+            const complete_test_name = try std.fmt.bufPrint(&name_buf, "{s}/{s}", .{ dir_info.name, std.fs.path.stem(file_info.name) });
+            var path_buf = [_]u8{0} ** 100;
+            const path = try std.fmt.bufPrint(&path_buf, "{s}/{s}/{s}", .{ group_root, dir_info.name, file_info.name });
+            module.addAnonymousImport(complete_test_name, .{ .root_source_file = b.path(path) });
+        }
+    }
 }
