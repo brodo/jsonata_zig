@@ -16,16 +16,14 @@ pub fn main() !void {
     try out_txt.writer().print(
         \\const std = @import("std");
         \\const json = std.json;
+        \\const testing = std.testing;
         \\
     , .{});
 
     { // Build Dataset Hashmap
         const datasets = try get_datasets(arena);
         try out_txt.writer().print(
-            \\const datasets = blk: {{
-            \\  var arena_alloc = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-            \\  defer arena_alloc.deinit();
-            \\  const arr = [_]struct{{[]const u8, json.Value}}{{
+            \\const datasets =[_]struct{{[]const u8, []const u8}}{{
             \\
         , .{});
 
@@ -36,24 +34,20 @@ pub fn main() !void {
             var lines = std.mem.splitAny(u8, content, "\n");
             var str_builder = std.ArrayList(u8).init(arena);
             while (lines.next()) |line| {
-                try std.fmt.format(str_builder.writer(), "\\\\            {s}\n", .{line});
+                try std.fmt.format(str_builder.writer(), "\\\\      {s}\n", .{line});
             }
             try out_txt.writer().print(
-                \\      .{{
-                \\          "{s}",
-                \\          json.parseFromSlice(std.json.Value, arena_alloc.allocator(),
+                \\  .{{
+                \\      "{s}",
                 \\{s}
-                \\          , .{{}}).?
-                \\      }},
+                \\  }},
                 \\
             , .{ name, str_builder.items });
         }
         try out_txt.writer().print(
-            \\  }};
-            \\  break :blk arr;
             \\}};
             \\
-            \\const dataset_map = std.StaticStringMap(json.Value).initComptime(datasets);
+            \\const dataset_map = std.StaticStringMap([]const u8).initComptime(datasets);
             \\
         , .{});
     }
@@ -61,62 +55,66 @@ pub fn main() !void {
     { // Build Test Info Hashmap
         try out_txt.writer().print(
             \\
-            \\const tests = blk: {{
-            \\  var arena_alloc = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-            \\  defer arena_alloc.deinit();
-            \\  const arr = [_]struct{{[]const u8, json.Value}}{{
+            \\const tests = [_]struct{{[]const u8, []const u8}}{{
         , .{});
         var iterator = groups.json.iterator();
         while (iterator.next()) |test_entry| {
             var lines = std.mem.splitAny(u8, test_entry.value_ptr.*, "\n");
             var str_builder = std.ArrayList(u8).init(arena);
             while (lines.next()) |line| {
-                try std.fmt.format(str_builder.writer(), "\\\\            {s}\n", .{line});
+                try std.fmt.format(str_builder.writer(), "\\\\      {s}\n", .{line});
             }
             try out_txt.writer().print(
-                \\      .{{
-                \\          "{s}",
-                \\          json.parseFromSlice(std.json.Value, arena_alloc.allocator(),
+                \\  .{{
+                \\      "{s}",
                 \\{s}
-                \\          , .{{}}).?,
-                \\      }},
+                \\  }},
             , .{ test_entry.key_ptr.*, str_builder.items });
         }
         try out_txt.writer().print(
-            \\      }};
-            \\  break :blk arr;
             \\}};
-            \\const test_map = std.StaticStringMap(json.Value).initComptime(tests);
+            \\const test_map = std.StaticStringMap([]const u8).initComptime(tests);
         , .{});
     }
 
     { // Build JSONATA expression Hashmap
         try out_txt.writer().print(
             \\
-            \\const jsonata_expressions = blk: {{
-            \\  var arena_alloc = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-            \\  defer arena_alloc.deinit();
-            \\  const arr = [].{{
+            \\const jsonata_expressions = [].{{
         , .{});
         var iterator = groups.jsonata.iterator();
         while (iterator.next()) |entry| {
             var lines = std.mem.splitAny(u8, entry.value_ptr.*, "\n");
             var str_builder = std.ArrayList(u8).init(arena);
             while (lines.next()) |line| {
-                try std.fmt.format(str_builder.writer(), "\\\\            {s}\n", .{line});
+                try std.fmt.format(str_builder.writer(), "\\\\      {s}\n", .{line});
             }
             try out_txt.writer().print(
-                \\      .{{
-                \\          "{s}",
+                \\  .{{
+                \\      "{s}",
                 \\{s},
-                \\      }},
+                \\  }},
             , .{ entry.key_ptr.*, str_builder.items });
         }
         try out_txt.writer().print(
-            \\      }};
-            \\  break :blk arr;
             \\}};
         , .{});
+    }
+
+    {
+        // Build tests
+        var iterator = groups.json.iterator();
+        while(iterator.next()) | entry | {
+            const name = entry.key_ptr.*;
+            try out_txt.writer().print(
+                \\test "{s}" {{
+                \\  const json_str = test_map.get("{s}").?;
+                \\  const test_json = try json.parseFromSlice(json.Value, testing.allocator, json_str, .{{}});
+                \\  defer test_json.deinit();
+                \\}}
+        , .{name, name});
+        }
+
     }
 
     try output_file.writeAll(out_txt.items);
