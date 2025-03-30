@@ -32,11 +32,21 @@ pub fn main() !void {
         var dataset_iterator = datasets.iterator();
         while (dataset_iterator.next()) |entry| {
             const name = entry.key_ptr.*;
-            const path = entry.value_ptr.*;
+            const content = entry.value_ptr.*;
+            var lines = std.mem.splitAny(u8, content, "\n");
+            var str_builder = std.ArrayList(u8).init(arena);
+            while (lines.next()) |line| {
+                try std.fmt.format(str_builder.writer(), "\\\\            {s}\n", .{line});
+            }
             try out_txt.writer().print(
-                \\      .{{ "{s}", json.parseFromSlice(std.json.Value, arena_alloc.allocator(), @embedFile("{s}"), .{{}}).? }},
+                \\      .{{
+                \\          "{s}",
+                \\          json.parseFromSlice(std.json.Value, arena_alloc.allocator(),
+                \\{s}
+                \\          , .{{}}).?
+                \\      }},
                 \\
-            , .{ name, path });
+            , .{ name, str_builder.items });
         }
         try out_txt.writer().print(
             \\  }};
@@ -48,7 +58,6 @@ pub fn main() !void {
         , .{});
     }
     const groups = try get_groups(arena);
-    const prefix = "test-suite/groups";
     { // Build Test Info Hashmap
         try out_txt.writer().print(
             \\
@@ -57,16 +66,21 @@ pub fn main() !void {
             \\  defer arena_alloc.deinit();
             \\  const arr = [_]struct{{[]const u8, json.Value}}{{
         , .{});
-
-        for (groups.json.items) |test_name| {
-            var buf = [_]u8{0} ** 100;
-            const path = try std.fmt.bufPrint(&buf, "{s}/{s}.json", .{ prefix, test_name });
+        var iterator = groups.json.iterator();
+        while (iterator.next()) |test_entry| {
+            var lines = std.mem.splitAny(u8, test_entry.value_ptr.*, "\n");
+            var str_builder = std.ArrayList(u8).init(arena);
+            while (lines.next()) |line| {
+                try std.fmt.format(str_builder.writer(), "\\\\            {s}\n", .{line});
+            }
             try out_txt.writer().print(
                 \\      .{{
                 \\          "{s}",
-                \\          json.parseFromSlice(std.json.Value, arena_alloc.allocator(), @embedFile("{s}"), .{{}}).?,
+                \\          json.parseFromSlice(std.json.Value, arena_alloc.allocator(),
+                \\{s}
+                \\          , .{{}}).?,
                 \\      }},
-            , .{ test_name, path });
+            , .{ test_entry.key_ptr.*, str_builder.items });
         }
         try out_txt.writer().print(
             \\      }};
@@ -84,16 +98,19 @@ pub fn main() !void {
             \\  defer arena_alloc.deinit();
             \\  const arr = [].{{
         , .{});
-
-        for (groups.jsonata.items) |test_name| {
-            var buf = [_]u8{0} ** 100;
-            const path = try std.fmt.bufPrint(&buf, "{s}/{s}.jsonata", .{ prefix, test_name });
+        var iterator = groups.jsonata.iterator();
+        while (iterator.next()) |entry| {
+            var lines = std.mem.splitAny(u8, entry.value_ptr.*, "\n");
+            var str_builder = std.ArrayList(u8).init(arena);
+            while (lines.next()) |line| {
+                try std.fmt.format(str_builder.writer(), "\\\\            {s}\n", .{line});
+            }
             try out_txt.writer().print(
                 \\      .{{
                 \\          "{s}",
-                \\          @embedFile("{s}"),
+                \\{s},
                 \\      }},
-            , .{ test_name, path });
+            , .{ entry.key_ptr.*, str_builder.items });
         }
         try out_txt.writer().print(
             \\      }};
@@ -107,14 +124,14 @@ pub fn main() !void {
 }
 
 // name is file path without extension
-const TestNames = struct { json: std.ArrayList([]const u8), jsonata: std.ArrayList([]const u8) };
+const TestNames = struct { json: std.StringArrayHashMap([]const u8), jsonata: std.StringArrayHashMap([]const u8) };
 
 fn get_groups(alloc: std.mem.Allocator) !TestNames {
     var group_dir = try std.fs.cwd().openDir("test-suite/groups", .{});
     defer group_dir.close();
     var g_iter = group_dir.iterate();
-    var json_list = std.ArrayList([]const u8).init(alloc);
-    var jsonata_list = std.ArrayList([]const u8).init(alloc);
+    var json_map = std.StringArrayHashMap([]const u8).init(alloc);
+    var jsonata_map = std.StringArrayHashMap([]const u8).init(alloc);
     while (try g_iter.next()) |dir_info| {
         if (dir_info.kind != .directory) continue;
         var test_dir = try group_dir.openDir(dir_info.name, .{});
@@ -127,32 +144,36 @@ fn get_groups(alloc: std.mem.Allocator) !TestNames {
             const complete_test_name = try alloc.alloc(u8, dir_name.len + test_name.len + 1);
             _ = try std.fmt.bufPrint(complete_test_name, "{s}/{s}", .{ dir_name, test_name });
             const file_extension = std.fs.path.extension(file_info.name);
+            var file = try test_dir.openFile(file_info.name, .{});
+            defer file.close();
+            const content = try file.readToEndAlloc(alloc, 1024*1204);
 
             if (std.mem.eql(u8, ".json", file_extension)) {
-                try json_list.append(complete_test_name);
+                try json_map.put(complete_test_name, content);
                 continue;
             }
             if (std.mem.eql(u8, ".jsonata", file_extension)) {
-                try jsonata_list.append(complete_test_name);
+                try jsonata_map.put(complete_test_name, content);
                 continue;
             }
         }
     }
-    return .{ .json = json_list, .jsonata = jsonata_list };
+    return .{ .json = json_map, .jsonata = jsonata_map };
 }
 
 fn get_datasets(alloc: std.mem.Allocator) !std.StringArrayHashMap([]const u8) {
     const dataset_root = "test-suite/datasets";
-    var test_suite_dir = try std.fs.cwd().openDir(dataset_root, .{});
-    defer test_suite_dir.close();
+    var dataset_dir = try std.fs.cwd().openDir(dataset_root, .{});
+    defer dataset_dir.close();
     var string_hash_map = std.StringArrayHashMap([]const u8).init(alloc);
-    var iter = test_suite_dir.iterate();
+    var iter = dataset_dir.iterate();
     while (try iter.next()) |entry| {
         if (entry.kind != .file) continue;
-        var file = try test_suite_dir.openFile(entry.name, .{});
+        var file = try dataset_dir.openFile(entry.name, .{});
         defer file.close();
+        const content = try file.readToEndAlloc(alloc, 1024*1204);
         const dataset_name = try alloc.dupe(u8, std.fs.path.stem(entry.name));
-        try string_hash_map.put(dataset_name, try std.fs.path.join(alloc, &.{ dataset_root, entry.name }));
+        try string_hash_map.put(dataset_name, content);
     }
     return string_hash_map;
 }
