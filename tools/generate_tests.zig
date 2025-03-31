@@ -164,8 +164,11 @@ pub fn main() !void {
             const name = entry.key_ptr.*;
             try out_txt.writer().print(
                 \\test "{s}" {{
-                \\  const test_data = try test_data_for_name("{s}", testing.allocator);
-                \\  defer test_data.deinit();
+                \\  const test_data_arr = try test_data_for_name("{s}", testing.allocator);
+                \\  defer test_data_arr.deinit();
+                \\  for ( test_data_arr.items) | test_data | {{
+                \\      try testing.expectEqual(test_data.result, jsonata.evaluate(test_data.expr, test_data.data));
+                \\  }}
                 \\}}
             , .{name, name});
         }
