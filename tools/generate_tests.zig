@@ -1,4 +1,6 @@
 const std = @import("std");
+const json  = std.json;
+const testing = std.testing;
 
 pub fn main() !void {
     var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -17,6 +19,8 @@ pub fn main() !void {
         \\const std = @import("std");
         \\const json = std.json;
         \\const testing = std.testing;
+        \\
+        \\const jsonata = @import("root.zig");
         \\
     , .{});
 
@@ -80,7 +84,7 @@ pub fn main() !void {
     { // Build JSONATA expression Hashmap
         try out_txt.writer().print(
             \\
-            \\const jsonata_expressions = [].{{
+            \\const jsonata_expressions = [_]struct{{[]const u8, []const u8}}{{
         , .{});
         var iterator = groups.jsonata.iterator();
         while (iterator.next()) |entry| {
@@ -98,23 +102,49 @@ pub fn main() !void {
         }
         try out_txt.writer().print(
             \\}};
+            \\const expression_map = std.StaticStringMap([]const u8).initComptime(jsonata_expressions);
+            \\
         , .{});
     }
 
     {
         // Build tests
         var iterator = groups.json.iterator();
-        while(iterator.next()) | entry | {
+        while (iterator.next()) |entry| {
             const name = entry.key_ptr.*;
             try out_txt.writer().print(
                 \\test "{s}" {{
                 \\  const json_str = test_map.get("{s}").?;
                 \\  const test_json = try json.parseFromSlice(json.Value, testing.allocator, json_str, .{{}});
                 \\  defer test_json.deinit();
+                \\  const expr = if (test_json.value.object.get("expr")) | e | e.string else blk: {{
+                \\      const expr_file = test_json.value.object.get("expr-file").?;
+                \\      if(std.meta.activeTag(expr_file) != .string) {{
+                \\          @panic("no expr, and no expr file!");
+                \\      }}
+                \\      var full_name = std.ArrayList(u8).init(testing.allocator);
+                \\      defer full_name.deinit();
+                \\      try full_name.writer().print("{{s}}/{{s}}",
+                \\          .{{std.fs.path.dirname("{s}").?, std.fs.path.stem(expr_file.string)}});
+                \\      break :blk expression_map.get(full_name.items).?;
+                \\  }};
+                \\
+                \\  const data : ?json.Value = if (test_json.value.object.get("data")) | d | d else blk: {{
+                \\      const data_set = test_json.value.object.get("dataset").?;
+                \\      if(std.meta.activeTag(data_set) != .string) {{
+                \\          break :blk null; // This is stupid, but such test cases exist in the repo.
+                \\      }}
+                \\      const ds_str = dataset_map.get(data_set.string).?;
+                \\      const ds_json = try json.parseFromSlice(json.Value, testing.allocator, ds_str, .{{}});
+                \\      defer ds_json.deinit();
+                \\      break :blk ds_json.value;
+                \\  }};
+                \\  _= data;
+                \\  _ = expr;
+                \\
                 \\}}
-        , .{name, name});
+            , .{ name, name, name });
         }
-
     }
 
     try output_file.writeAll(out_txt.items);
@@ -141,11 +171,11 @@ fn get_groups(alloc: std.mem.Allocator) !TestNames {
             const test_name = std.fs.path.stem(file_info.name);
             const complete_test_name = try alloc.alloc(u8, dir_name.len + test_name.len + 1);
             _ = try std.fmt.bufPrint(complete_test_name, "{s}/{s}", .{ dir_name, test_name });
-            const file_extension = std.fs.path.extension(file_info.name);
             var file = try test_dir.openFile(file_info.name, .{});
             defer file.close();
-            const content = try file.readToEndAlloc(alloc, 1024*1204);
+            const content = try file.readToEndAlloc(alloc, 1024 * 1204);
 
+            const file_extension = std.fs.path.extension(file_info.name);
             if (std.mem.eql(u8, ".json", file_extension)) {
                 try json_map.put(complete_test_name, content);
                 continue;
@@ -169,7 +199,7 @@ fn get_datasets(alloc: std.mem.Allocator) !std.StringArrayHashMap([]const u8) {
         if (entry.kind != .file) continue;
         var file = try dataset_dir.openFile(entry.name, .{});
         defer file.close();
-        const content = try file.readToEndAlloc(alloc, 1024*1204);
+        const content = try file.readToEndAlloc(alloc, 1024 * 1204);
         const dataset_name = try alloc.dupe(u8, std.fs.path.stem(entry.name));
         try string_hash_map.put(dataset_name, content);
     }
@@ -177,18 +207,40 @@ fn get_datasets(alloc: std.mem.Allocator) !std.StringArrayHashMap([]const u8) {
 }
 
 test "get_groups" {
-    var area = std.heap.ArenaAllocator.init(std.testing.allocator);
+    var area = std.heap.ArenaAllocator.init(testing.allocator);
     defer area.deinit();
     var groups = try get_groups(area.allocator());
-    try std.testing.expect(groups.json.count() > 0);
-    try std.testing.expect(groups.jsonata.count() > 0);
+    try testing.expect(groups.json.count() > 0);
+    try testing.expect(groups.jsonata.count() > 0);
 }
 
 test "get_datasets" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     var datasets = try get_datasets(arena.allocator());
-    try std.testing.expectEqual(28, datasets.count());
-    try std.testing.expect(datasets.contains("library"));
-    try std.testing.expect(datasets.contains("dataset11"));
+    try testing.expectEqual(28, datasets.count());
+    try testing.expect(datasets.contains("library"));
+    try testing.expect(datasets.contains("dataset11"));
+}
+
+test "example_test" {
+    const json_str =
+        \\{
+        \\  "expr": "[]",
+        \\  "dataset": "dataset5",
+        \\  "bindings": {},
+        \\  "result": []
+        \\}
+    ;
+    const test_json = try json.parseFromSlice(json.Value, testing.allocator, json_str, .{});
+    defer test_json.deinit();
+    // const expr = test_json.value.object.get("expr").?;
+
+    // var data : json.Value =  if (test_json.value.object.get("data")) | d | d else {
+    //     const data_set = test_json.value.object.get("dataset").?.string;
+    //     datsets.get(data_set);
+    // };
+
+
+
 }
