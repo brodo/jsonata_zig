@@ -1,5 +1,5 @@
 const std = @import("std");
-const json  = std.json;
+const json = std.json;
 const testing = std.testing;
 
 pub fn main() !void {
@@ -104,6 +104,56 @@ pub fn main() !void {
             \\}};
             \\const expression_map = std.StaticStringMap([]const u8).initComptime(jsonata_expressions);
             \\
+            \\const TestData = struct {{expr: [] const u8, data: ?json.Value, result: ?json.Value}};
+            \\
+            \\
+            \\fn test_data_for_json(test_json: json.Value, name: []const u8, alloc: std.mem.Allocator ) !TestData {{
+            \\  const expr = if (test_json.object.get("expr")) | e | e.string else blk: {{
+            \\       const expr_file = test_json.object.get("expr-file").?;
+            \\       if(std.meta.activeTag(expr_file) != .string) {{
+            \\           @panic("no expr, and no expr file!");
+            \\       }}
+            \\       var full_name = std.ArrayList(u8).init(alloc);
+            \\       defer full_name.deinit();
+            \\       try full_name.writer().print("{{s}}/{{s}}",
+            \\           .{{std.fs.path.dirname(name).?, std.fs.path.stem(expr_file.string)}});
+            \\       break :blk expression_map.get(full_name.items).?;
+            \\   }};
+            \\
+            \\   const data : ?json.Value = if (test_json.object.get("data")) | d | d else blk: {{
+            \\       const data_set = test_json.object.get("dataset").?;
+            \\       if(std.meta.activeTag(data_set) != .string) {{
+            \\           break :blk null; // This is stupid, but such test cases exist in the repo.
+            \\       }}
+            \\       const ds_str = dataset_map.get(data_set.string).?;
+            \\       const ds_json = try json.parseFromSlice(json.Value, alloc, ds_str, .{{}});
+            \\       defer ds_json.deinit();
+            \\       break :blk ds_json.value;
+            \\   }};
+            \\   const result = test_json.object.get("result");
+            \\   return .{{.expr= expr, .data= data, .result= result}};
+            \\}}
+            \\
+            \\fn test_data_for_name(name: []const u8, alloc: std.mem.Allocator) !std.ArrayList(TestData) {{
+            \\  const json_str = test_map.get(name).?;
+            \\  const test_json = try json.parseFromSlice(json.Value, alloc, json_str, .{{}});
+            \\  defer test_json.deinit();
+            \\  var out = std.ArrayList(TestData).init(alloc);
+            \\  switch (test_json.value) {{
+            \\      .object => {{
+            \\         try out.append(try test_data_for_json(test_json.value, name, alloc));
+            \\      }},
+            \\      .array => {{
+            \\          for (test_json.value.array.items) | test_case | {{
+            \\              try out.append(try test_data_for_json(test_case, name, alloc));
+            \\          }}
+            \\      }},
+            \\      else => {{
+            \\          std.debug.print("not object or arrray!\n",.{{}});
+            \\      }},
+            \\  }}
+            \\  return out;
+            \\}}
         , .{});
     }
 
@@ -114,36 +164,10 @@ pub fn main() !void {
             const name = entry.key_ptr.*;
             try out_txt.writer().print(
                 \\test "{s}" {{
-                \\  const json_str = test_map.get("{s}").?;
-                \\  const test_json = try json.parseFromSlice(json.Value, testing.allocator, json_str, .{{}});
-                \\  defer test_json.deinit();
-                \\  const expr = if (test_json.value.object.get("expr")) | e | e.string else blk: {{
-                \\      const expr_file = test_json.value.object.get("expr-file").?;
-                \\      if(std.meta.activeTag(expr_file) != .string) {{
-                \\          @panic("no expr, and no expr file!");
-                \\      }}
-                \\      var full_name = std.ArrayList(u8).init(testing.allocator);
-                \\      defer full_name.deinit();
-                \\      try full_name.writer().print("{{s}}/{{s}}",
-                \\          .{{std.fs.path.dirname("{s}").?, std.fs.path.stem(expr_file.string)}});
-                \\      break :blk expression_map.get(full_name.items).?;
-                \\  }};
-                \\
-                \\  const data : ?json.Value = if (test_json.value.object.get("data")) | d | d else blk: {{
-                \\      const data_set = test_json.value.object.get("dataset").?;
-                \\      if(std.meta.activeTag(data_set) != .string) {{
-                \\          break :blk null; // This is stupid, but such test cases exist in the repo.
-                \\      }}
-                \\      const ds_str = dataset_map.get(data_set.string).?;
-                \\      const ds_json = try json.parseFromSlice(json.Value, testing.allocator, ds_str, .{{}});
-                \\      defer ds_json.deinit();
-                \\      break :blk ds_json.value;
-                \\  }};
-                \\  _= data;
-                \\  _ = expr;
-                \\
+                \\  const test_data = try test_data_for_name("{s}", testing.allocator);
+                \\  defer test_data.deinit();
                 \\}}
-            , .{ name, name, name });
+            , .{name, name});
         }
     }
 
@@ -234,13 +258,11 @@ test "example_test" {
     ;
     const test_json = try json.parseFromSlice(json.Value, testing.allocator, json_str, .{});
     defer test_json.deinit();
-    // const expr = test_json.value.object.get("expr").?;
+    // const expr = test_json.value.array.
 
     // var data : json.Value =  if (test_json.value.object.get("data")) | d | d else {
     //     const data_set = test_json.value.object.get("dataset").?.string;
     //     datsets.get(data_set);
     // };
-
-
 
 }
