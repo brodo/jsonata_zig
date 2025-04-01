@@ -72,6 +72,10 @@ pub const Token = struct {
         ref,
         identifier,
         number,
+        plus,
+        minus,
+        slash,
+        percent,
 
         pub fn lexeme(self: Tag) ?[]const u8 {
             return switch (self) {
@@ -91,6 +95,10 @@ pub const Token = struct {
                 .rparen => ")",
                 .lsquare => "[",
                 .rsquare => "]",
+                .plus => "+",
+                .minus => "-",
+                .slash => "/",
+                .percent => "%",
             };
         }
     };
@@ -131,7 +139,7 @@ pub fn next(self: *Tokenizer, code: []const u8) ?Token {
                 '`' => {
                     state = .ref;
                 },
-                '0'...'9', '-' => {
+                '0'...'9' => {
                     state = .number;
                 },
 
@@ -192,6 +200,30 @@ pub fn next(self: *Tokenizer, code: []const u8) ?Token {
                 ']' => {
                     self.idx += 1;
                     res.tag = .rsquare;
+                    res.loc.end = self.idx;
+                    break;
+                },
+                '+' => {
+                    self.idx += 1;
+                    res.tag = .plus;
+                    res.loc.end = self.idx;
+                    break;
+                },
+                '-' => {
+                    self.idx += 1;
+                    res.tag = .minus;
+                    res.loc.end = self.idx;
+                    break;
+                },
+                '/' => {
+                    self.idx += 1;
+                    res.tag = .slash;
+                    res.loc.end = self.idx;
+                    break;
+                },
+                '%' => {
+                    self.idx += 1;
+                    res.tag = .percent;
                     res.loc.end = self.idx;
                     break;
                 },
@@ -322,6 +354,19 @@ test "general language" {
             .ampersand,
             .string,
             .ampersand,
+            .identifier,
+        } },
+        .{ .code = "a + b - c * d / f % g", .expected = &.{
+            .identifier,
+            .plus,
+            .identifier,
+            .minus,
+            .identifier,
+            .star,
+            .identifier,
+            .slash,
+            .identifier,
+            .percent,
             .identifier,
         } },
     };
