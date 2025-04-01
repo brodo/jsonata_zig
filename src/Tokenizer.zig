@@ -63,6 +63,7 @@ pub const Token = struct {
         comma,
         star,
         eq,
+        ampersand,
         lparen,
         rparen,
         lsquare,
@@ -85,6 +86,7 @@ pub const Token = struct {
                 .comma => ",",
                 .star => "*",
                 .eq => "=",
+                .ampersand => "&",
                 .lparen => "(",
                 .rparen => ")",
                 .lsquare => "[",
@@ -160,6 +162,12 @@ pub fn next(self: *Tokenizer, code: []const u8) ?Token {
                 '=' => {
                     self.idx += 1;
                     res.tag = .eq;
+                    res.loc.end = self.idx;
+                    break;
+                },
+                '&' => {
+                    self.idx += 1;
+                    res.tag = .ampersand;
                     res.loc.end = self.idx;
                     break;
                 },
@@ -308,6 +316,13 @@ test "general language" {
             .eq,
             .string,
             .rsquare,
+        } },
+        .{ .code = "FirstName & ' ' & Surname", .expected = &.{
+            .identifier,
+            .ampersand,
+            .string,
+            .ampersand,
+            .identifier,
         } },
     };
 
