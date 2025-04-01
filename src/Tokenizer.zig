@@ -61,8 +61,11 @@ pub const Token = struct {
         dollar,
         dot,
         comma,
+        eq,
         lparen,
         rparen,
+        lsquare,
+        rsquare,
         string,
         identifier,
         number,
@@ -77,8 +80,11 @@ pub const Token = struct {
                 .dollar => "$",
                 .dot => ".",
                 .comma => ",",
+                .eq => "=",
                 .lparen => "(",
                 .rparen => ")",
+                .lsquare => "[",
+                .rsquare => "]",
             };
         }
     };
@@ -137,6 +143,12 @@ pub fn next(self: *Tokenizer, code: []const u8) ?Token {
                     res.loc.end = self.idx;
                     break;
                 },
+                '=' => {
+                    self.idx += 1;
+                    res.tag = .eq;
+                    res.loc.end = self.idx;
+                    break;
+                },
                 '(' => {
                     self.idx += 1;
                     res.tag = .lparen;
@@ -146,6 +158,18 @@ pub fn next(self: *Tokenizer, code: []const u8) ?Token {
                 ')' => {
                     self.idx += 1;
                     res.tag = .rparen;
+                    res.loc.end = self.idx;
+                    break;
+                },
+                '[' => {
+                    self.idx += 1;
+                    res.tag = .lsquare;
+                    res.loc.end = self.idx;
+                    break;
+                },
+                ']' => {
+                    self.idx += 1;
+                    res.tag = .rsquare;
                     res.loc.end = self.idx;
                     break;
                 },
@@ -210,11 +234,75 @@ fn evenSlashes(str: []const u8) bool {
 }
 
 test "general language" {
-    const expected = [_]Token.Tag{.identifier};
-    var it: Tokenizer = .{};
-    var idx: u32 = 0;
-    while (it.next("Test")) |token| {
-        try std.testing.expectEqual(expected[idx], token.tag);
-        idx += 1;
+    const Case = struct {
+        code: []const u8,
+        expected: []const Token.Tag,
+    };
+    const cases: []const Case = &.{
+        .{ .code = "Surname", .expected = &.{
+            .identifier,
+        } },
+        .{ .code = "Address.City", .expected = &.{
+            .identifier,
+            .dot,
+            .identifier,
+        } },
+        .{ .code = "Phone[type='mobile']", .expected = &.{
+            .identifier,
+            .lsquare,
+            .identifier,
+            .eq,
+            .string,
+            .rsquare
+        } },
+    };
+
+    for (cases) |case| {
+        // std.debug.print("Case: {s}\n", .{case.code});
+
+        var it: Tokenizer = .{};
+        for (case.expected) |ex| {
+            errdefer std.debug.print("{any}\n", .{it});
+
+            const t = it.next(case.code) orelse return error.Null;
+            try std.testing.expectEqual(ex, t.tag);
+            const src = case.code[t.loc.start..t.loc.end];
+            // std.debug.print(".{s} => `{s}`\n", .{ @tagName(t.tag), src });
+            if (t.tag.lexeme()) |l| {
+                try std.testing.expectEqualStrings(l, src);
+            }
+        }
+
+        try std.testing.expectEqual(@as(?Token, null), it.next(case.code));
+    }
+}
+
+test "strings" {
+    const cases =
+        \\"arst"
+        \\"arst"
+        \\"ba\"nana1"
+        \\"ba\'nana2"
+        \\'ba\'nana3'
+        \\'ba\"nana4'
+        \\'b1a\''
+        \\"b2a\""
+        \\"b3a\'"
+        \\"b4a\\"
+        \\"b5a\\\\"
+        \\"b6a\\\\\\"
+        \\'ba\\"nana5'
+    .*;
+    var cases_it = std.mem.tokenizeScalar(u8, &cases, '\n');
+    while (cases_it.next()) |case| {
+        errdefer std.debug.print("Case: {s}\n", .{case});
+
+        var it: Tokenizer = .{};
+        errdefer std.debug.print("Tokenizer idx: {}\n", .{it.idx});
+        const t = it.next(case) orelse return error.Null;
+        const src = case[t.loc.start..t.loc.end];
+        errdefer std.debug.print(".{s} => `{s}`\n", .{ @tagName(t.tag), src });
+        try std.testing.expectEqual(@as(Token.Tag, .string), t.tag);
+        try std.testing.expectEqual(@as(?Token, null), it.next(case));
     }
 }
