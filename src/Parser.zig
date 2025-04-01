@@ -86,7 +86,7 @@ pub fn next(p: *Parser, code: []const u8) !?Node {
                 }
 
                 p.previous_segment_end = tok.loc.end;
-                var last = p.stack.getLast();
+                const last = &p.stack.items[p.stack.items.len - 1];
                 last.loc.end = id_tok.?.loc.end;
                 dotted_path = true;
             },
@@ -104,7 +104,7 @@ pub fn next(p: *Parser, code: []const u8) !?Node {
             .end = code_len,
         });
     }
-    var last = p.stack.getLast();
+    const last = &p.stack.items[p.stack.items.len - 1];
     last.loc.end = code_len;
     if (last.loc.len() == 0) return null;
     return p.stack.getLast();
@@ -122,11 +122,12 @@ test "basics" {
     };
 
     var p: Parser = Parser.init(std.testing.allocator);
-
+    defer p.deinit();
     for (expected) |ex| {
         const actual = try p.next(case);
+        std.debug.print("node: {any}\n", .{actual.?});
         try std.testing.expectEqual(ex, actual.?.tag);
     }
     try std.testing.expectEqual(@as(?Node, null), p.next(case));
-    p.deinit();
+
 }
