@@ -1,0 +1,9 @@
+{
+    "configurations": [
+        {
+            "type": "zig-test",
+            "name": "zig test Parser",
+            "files": ["src/Parser.zig"]
+        }
+    ]
+}
