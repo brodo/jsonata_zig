@@ -1,5 +1,4 @@
 const Parser = @This();
-const Self = @This();
 const std = @import("std");
 const Tokenizer = @import("Tokenizer.zig");
 
@@ -17,40 +16,57 @@ const State = enum {
     syntax,
 };
 
-pub fn init(allocator: std.mem.Allocator) Self {
+pub fn init(allocator: std.mem.Allocator) Parser {
     return .{ .stack = std.ArrayList(Node).init(allocator), .allocator = allocator };
 }
 
-pub fn deinit(p: Self) void {
+pub fn deinit(p: Parser) void {
+    for (p.stack.items) |node| {
+        node.deinit();
+    }
     p.stack.deinit();
 }
+pub const Tag = enum {
+    path,
+    syntax_error,
+};
 
-pub const Node = struct {
-    tag: Tag,
+const PathNode = struct {
     loc: Tokenizer.Token.Loc,
-    infos: ?Infos = null,
+    steps: std.ArrayList(Tokenizer.Token),
+    fn init(allocator: std.mem.Allocator, loc: Tokenizer.Token.Loc) PathNode {
+        return .{ .steps = std.ArrayList(Tokenizer.Token).init(allocator), .loc = loc };
+    }
+    fn deinit(n: PathNode) void {
+        n.steps.deinit();
+    }
+};
 
-    pub const Tag = enum {
-        path,
-        syntax_error,
-    };
+const SyntaxErrorNode = struct {
+    loc: Tokenizer.Token.Loc,
+};
 
-    pub const Infos = union(Tag) {
-        path: std.ArrayList(Tokenizer.Token),
-        syntax_error: void,
-    };
-
-    pub fn init(allocator: std.mem.Allocator, tag: Tag, loc: Tokenizer.Token.Loc) Node {
-        return switch (tag) {
-            .path => .{ .tag = tag, .infos = .{ .path = std.ArrayList(Tokenizer.Token).init(allocator) }, .loc = loc },
-            .syntax_error => .{ .tag = tag, .loc = loc},
+pub const Node = union(Tag) {
+    path: PathNode,
+    syntax_error: SyntaxErrorNode,
+    fn loc(self: Node) *Tokenizer.Token.Loc {
+        return switch (self) {
+            .path => |p| @constCast(&p.loc),
+            .syntax_error => |e| @constCast(&e.loc),
         };
     }
 
-    pub fn deinit(n: Node) void {
-        return switch (n) {
-            .path => n.infos.?.path.deinit(),
+    fn tag(self: Node) Tag {
+        return switch (self) {
+            .path => .path,
+            .syntax_error => .syntax_error,
         };
+    }
+    fn deinit(self: Node) void {
+        switch (self) {
+            .path => |p| p.deinit(),
+            else => {},
+        }
     }
 };
 
@@ -70,7 +86,9 @@ pub fn next(p: *Parser, code: []const u8) !?Node {
         .syntax => unreachable,
         .start => switch (tok.tag) {
             .dollar, .identifier, .star => {
-                try p.stack.append(Node.init(p.allocator, .path, tok.loc));
+                var node = PathNode.init(p.allocator, tok.loc);
+                try node.steps.append(tok);
+                try p.stack.append(Node{ .path = node });
                 p.state = .extend_path;
             },
             else => {
@@ -87,7 +105,8 @@ pub fn next(p: *Parser, code: []const u8) !?Node {
 
                 p.previous_segment_end = tok.loc.end;
                 const last = &p.stack.items[p.stack.items.len - 1];
-                last.loc.end = id_tok.?.loc.end;
+                try last.path.steps.append(tok);
+                last.path.loc.end = id_tok.?.loc.end;
                 dotted_path = true;
             },
 
@@ -105,29 +124,27 @@ pub fn next(p: *Parser, code: []const u8) !?Node {
         });
     }
     const last = &p.stack.items[p.stack.items.len - 1];
-    last.loc.end = code_len;
-    if (last.loc.len() == 0) return null;
+    last.loc().end = code_len;
+    if (last.loc().len() == 0) return null;
     return p.stack.getLast();
 }
 
 fn syntaxError(p: *Parser, loc: Tokenizer.Token.Loc) Node {
     p.state = .syntax;
-    return .{ .tag = .syntax_error, .loc = loc };
+    return .{ .syntax_error = .{ .loc = loc } };
 }
 
 test "basics" {
     const case = "Address.City";
-    const expected: []const Node.Tag = &.{
+    const expected: []const Tag = &.{
         .path,
     };
 
-    var p: Parser = Parser.init(std.testing.allocator);
+    var p = Parser.init(std.testing.allocator);
     defer p.deinit();
     for (expected) |ex| {
-        const actual = try p.next(case);
-        std.debug.print("node: {any}\n", .{actual.?});
-        try std.testing.expectEqual(ex, actual.?.tag);
+        const actual = (try p.next(case)).?;
+        try std.testing.expectEqual(ex, actual.tag());
     }
     try std.testing.expectEqual(@as(?Node, null), p.next(case));
-
 }
