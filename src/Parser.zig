@@ -1,5 +1,5 @@
 const Parser = @This();
-
+const Self = @This();
 const std = @import("std");
 const Tokenizer = @import("Tokenizer.zig");
 
@@ -7,6 +7,8 @@ it: Tokenizer = .{},
 state: State = .start,
 call_depth: u32 = 0, // 0 = not in a call
 previous_segment_end: u32 = 0, // used for call
+stack: std.ArrayList(Node),
+allocator: std.mem.Allocator,
 
 const State = enum {
     start,
@@ -15,40 +17,61 @@ const State = enum {
     syntax,
 };
 
+pub fn init(allocator: std.mem.Allocator) Self {
+    return .{ .stack = std.ArrayList(Node).init(allocator), .allocator = allocator };
+}
+
+pub fn deinit(p: Self) void {
+    p.stack.deinit();
+}
+
 pub const Node = struct {
     tag: Tag,
     loc: Tokenizer.Token.Loc,
+    infos: ?Infos = null,
 
     pub const Tag = enum {
         path,
         syntax_error,
     };
+
+    pub const Infos = union(Tag) {
+        path: std.ArrayList(Tokenizer.Token),
+        syntax_error: void,
+    };
+
+    pub fn init(allocator: std.mem.Allocator, tag: Tag, loc: Tokenizer.Token.Loc) Node {
+        return switch (tag) {
+            .path => .{ .tag = tag, .infos = .{ .path = std.ArrayList(Tokenizer.Token).init(allocator) }, .loc = loc },
+            .syntax_error => .{ .tag = tag, .loc = loc},
+        };
+    }
+
+    pub fn deinit(n: Node) void {
+        return switch (n) {
+            .path => n.infos.?.path.deinit(),
+        };
+    }
 };
 
-pub fn next(p: *Parser, code: []const u8) ?Node {
+pub fn next(p: *Parser, code: []const u8) !?Node {
     if (p.it.idx == code.len) {
-        const in_terminal_state =  p.state == .extend_path;
+        const in_terminal_state = p.state == .extend_path;
         if (in_terminal_state) return null;
         return p.syntaxError(.{
             .start = p.it.idx,
             .end = p.it.idx,
         });
     }
-    var path: Node = .{
-        .tag = .path,
-        .loc = undefined,
-    };
 
-    var path_starts_at_global = false;
     var dotted_path = false;
 
     while (p.it.next(code)) |tok| switch (p.state) {
         .syntax => unreachable,
         .start => switch (tok.tag) {
             .dollar, .identifier, .star => {
+                try p.stack.append(Node.init(p.allocator, .path, tok.loc));
                 p.state = .extend_path;
-                path.loc.end = tok.loc.end;
-                path_starts_at_global = true;
             },
             else => {
                 return p.syntaxError(tok.loc);
@@ -63,7 +86,8 @@ pub fn next(p: *Parser, code: []const u8) ?Node {
                 }
 
                 p.previous_segment_end = tok.loc.end;
-                path.loc.end = id_tok.?.loc.end;
+                var last = p.stack.getLast();
+                last.loc.end = id_tok.?.loc.end;
                 dotted_path = true;
             },
 
@@ -80,10 +104,10 @@ pub fn next(p: *Parser, code: []const u8) ?Node {
             .end = code_len,
         });
     }
-
-    path.loc.end = code_len;
-    if (path.loc.len() == 0) return null;
-    return path;
+    var last = p.stack.getLast();
+    last.loc.end = code_len;
+    if (last.loc.len() == 0) return null;
+    return p.stack.getLast();
 }
 
 fn syntaxError(p: *Parser, loc: Tokenizer.Token.Loc) Node {
@@ -97,12 +121,12 @@ test "basics" {
         .path,
     };
 
-    var p: Parser = .{};
+    var p: Parser = Parser.init(std.testing.allocator);
 
     for (expected) |ex| {
-        const actual = p.next(case).?;
-        try std.testing.expectEqual(ex, actual.tag);
+        const actual = try p.next(case);
+        try std.testing.expectEqual(ex, actual.?.tag);
     }
     try std.testing.expectEqual(@as(?Node, null), p.next(case));
+    p.deinit();
 }
-
