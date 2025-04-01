@@ -61,12 +61,14 @@ pub const Token = struct {
         dollar,
         dot,
         comma,
+        star,
         eq,
         lparen,
         rparen,
         lsquare,
         rsquare,
         string,
+        ref,
         identifier,
         number,
 
@@ -74,12 +76,14 @@ pub const Token = struct {
             return switch (self) {
                 .invalid,
                 .string,
+                .ref,
                 .identifier,
                 .number,
                 => null,
                 .dollar => "$",
                 .dot => ".",
                 .comma => ",",
+                .star => "*",
                 .eq => "=",
                 .lparen => "(",
                 .rparen => ")",
@@ -96,6 +100,7 @@ const State = enum {
     identifier,
     number,
     string,
+    ref,
 };
 
 pub fn next(self: *Tokenizer, code: []const u8) ?Token {
@@ -121,6 +126,9 @@ pub fn next(self: *Tokenizer, code: []const u8) ?Token {
                 '"', '\'' => {
                     state = .string;
                 },
+                '`' => {
+                    state = .ref;
+                },
                 '0'...'9', '-' => {
                     state = .number;
                 },
@@ -140,6 +148,12 @@ pub fn next(self: *Tokenizer, code: []const u8) ?Token {
                 '.' => {
                     self.idx += 1;
                     res.tag = .dot;
+                    res.loc.end = self.idx;
+                    break;
+                },
+                '*' => {
+                    self.idx += 1;
+                    res.tag = .star;
                     res.loc.end = self.idx;
                     break;
                 },
@@ -199,6 +213,20 @@ pub fn next(self: *Tokenizer, code: []const u8) ?Token {
                 },
                 else => {},
             },
+            .ref => switch (c) {
+                0 => {
+                    res.tag = .invalid;
+                    res.loc.end = self.idx;
+                    break;
+                },
+                '`' => {
+                    self.idx += 1;
+                    res.tag = .ref;
+                    res.loc.end = self.idx;
+                    break;
+                },
+                else => {},
+            },
             .number => switch (c) {
                 '0'...'9', '.', '_' => {},
                 else => {
@@ -253,7 +281,33 @@ test "general language" {
             .identifier,
             .eq,
             .string,
-            .rsquare
+            .rsquare,
+        } },
+        .{ .code = "Address.*", .expected = &.{
+            .identifier,
+            .dot,
+            .star,
+        } },
+        .{ .code = "Other.`Over 18 ?`", .expected = &.{
+            .identifier,
+            .dot,
+            .ref,
+        } },
+        .{ .code = "$[0].ref", .expected = &.{
+            .dollar,
+            .lsquare,
+            .number,
+            .rsquare,
+            .dot,
+            .identifier,
+        } },
+        .{ .code = "Phone[type='mobile']", .expected = &.{
+            .identifier,
+            .lsquare,
+            .identifier,
+            .eq,
+            .string,
+            .rsquare,
         } },
     };
 
